@@ -58,12 +58,32 @@ fn main() -> io::Result<()> {
 
     loop {
         terminal.draw(|frame| {
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+            // ─── Outer layout: header (1 row) / body (rest) / footer (1 row)
+            let outer = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(1),
+                    Constraint::Min(0),
+                    Constraint::Length(1),
+                ])
                 .split(frame.area());
 
-            // LEFT: list of file names
+            // ─── Inner layout: split the body into left (40%) and right (60%)
+            let body = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+                .split(outer[1]);
+
+            // ─── HEADER: app name + folder path, on a cyan band
+            let header = Paragraph::new(format!(" synapse · {} ", path)).style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            );
+            frame.render_widget(header, outer[0]);
+
+            // ─── LEFT: list of file names
             let items: Vec<ListItem> = notes
                 .iter()
                 .map(|note| ListItem::new(note.name()))
@@ -80,9 +100,9 @@ fn main() -> io::Result<()> {
                 )
                 .highlight_symbol("> ");
 
-            frame.render_stateful_widget(list, chunks[0], &mut list_state);
+            frame.render_stateful_widget(list, body[0], &mut list_state);
 
-            // RIGHT: preview of selected note (no more file reads in the loop!)
+            // ─── RIGHT: preview of selected note
             let (preview_text, preview_title) = match list_state.selected() {
                 Some(i) => {
                     let note = &notes[i];
@@ -95,7 +115,12 @@ fn main() -> io::Result<()> {
                 .block(Block::default().borders(Borders::ALL).title(preview_title))
                 .wrap(Wrap { trim: false });
 
-            frame.render_widget(preview, chunks[1]);
+            frame.render_widget(preview, body[1]);
+
+            // ─── FOOTER: key hints, dim
+            let footer = Paragraph::new(" ↑↓/jk: navigate · q: quit ")
+                .style(Style::default().fg(Color::DarkGray));
+            frame.render_widget(footer, outer[2]);
         })?;
 
         if let Event::Key(key) = event::read()? {
