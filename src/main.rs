@@ -11,8 +11,29 @@ use walkdir::WalkDir;
 
 const DEFAULT_PATH: &str = "/Users/trthurthiele/Documents/Schule/Mappen";
 
+// ─── A Note: one typst file, with its path and pre-loaded contents ────────────
+struct Note {
+    path: PathBuf,
+    contents: String,
+}
+
+impl Note {
+    /// Read a typst file from disk and build a Note from it.
+    fn from_path(path: PathBuf) -> io::Result<Note> {
+        let contents = fs::read_to_string(&path)?;
+        Ok(Note { path, contents })
+    }
+
+    /// Just the filename (e.g. "Vektoren.typ"), not the full path.
+    fn name(&self) -> String {
+        self.path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| self.path.display().to_string())
+    }
+}
+
 fn main() -> io::Result<()> {
-    // 1. Collect the .typ files
     let args: Vec<String> = env::args().collect();
     let path: &str = if args.len() > 1 {
         &args[1]
@@ -20,44 +41,35 @@ fn main() -> io::Result<()> {
         DEFAULT_PATH
     };
 
-    let mut typst_files: Vec<PathBuf> = Vec::new();
+    // Collect all .typ files into Notes (read each file ONCE, up front)
+    let mut notes: Vec<Note> = Vec::new();
     for entry in WalkDir::new(path) {
         let entry = entry?;
         if let Some(extension) = entry.path().extension() {
             if extension == "typ" {
-                typst_files.push(entry.path().to_path_buf());
+                notes.push(Note::from_path(entry.path().to_path_buf())?);
             }
         }
     }
 
-    // 2. Take over the terminal
     let mut terminal = ratatui::init();
-
     let mut list_state = ListState::default();
     list_state.select(Some(0));
 
-    // 3. Main loop
     loop {
         terminal.draw(|frame| {
-            // Split the screen horizontally: 40% left, 60% right
             let chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                 .split(frame.area());
 
-            // ─── LEFT PANE: file list ─────────────────────────────────
-            let items: Vec<ListItem> = typst_files
+            // LEFT: list of file names
+            let items: Vec<ListItem> = notes
                 .iter()
-                .map(|path| {
-                    let label = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| path.display().to_string());
-                    ListItem::new(label)
-                })
+                .map(|note| ListItem::new(note.name()))
                 .collect();
 
-            let title = format!(" Files — {} ", typst_files.len());
+            let title = format!(" Files — {} ", notes.len());
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(title))
                 .highlight_style(
@@ -70,15 +82,13 @@ fn main() -> io::Result<()> {
 
             frame.render_stateful_widget(list, chunks[0], &mut list_state);
 
-            // ─── RIGHT PANE: preview ──────────────────────────────────
+            // RIGHT: preview of selected note (no more file reads in the loop!)
             let (preview_text, preview_title) = match list_state.selected() {
                 Some(i) => {
-                    let contents = fs::read_to_string(&typst_files[i])
-                        .unwrap_or_else(|e| format!("Error reading file: {}", e));
-                    let title = format!(" {} ", typst_files[i].display());
-                    (contents, title)
+                    let note = &notes[i];
+                    (note.contents.as_str(), format!(" {} ", note.path.display()))
                 }
-                None => (String::from("No file selected"), String::from(" Preview ")),
+                None => ("No file selected", String::from(" Preview ")),
             };
 
             let preview = Paragraph::new(preview_text)
