@@ -33,6 +33,13 @@ impl Note {
     }
 }
 
+/// Which input mode we're in: regular navigation, or typing a search query.
+#[derive(Copy, Clone)]
+enum Mode {
+    Normal,
+    Search,
+}
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path: &str = if args.len() > 1 {
@@ -55,6 +62,10 @@ fn main() -> io::Result<()> {
     let mut terminal = ratatui::init();
     let mut list_state = ListState::default();
     list_state.select(Some(0));
+
+    // Mode state: are we navigating or typing a search query?
+    let mut mode = Mode::Normal;
+    let mut query = String::new();
 
     loop {
         terminal.draw(|frame| {
@@ -83,13 +94,30 @@ fn main() -> io::Result<()> {
             );
             frame.render_widget(header, outer[0]);
 
-            // ─── LEFT: list of file names
-            let items: Vec<ListItem> = notes
+            // ─── Compute which notes match the current query
+            let filtered: Vec<usize> = if query.is_empty() {
+                (0..notes.len()).collect()
+            } else {
+                let q = query.to_lowercase();
+                notes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, n)| n.name().to_lowercase().contains(&q))
+                    .map(|(i, _)| i)
+                    .collect()
+            };
+
+            // ─── LEFT: list of (filtered) file names
+            let items: Vec<ListItem> = filtered
                 .iter()
-                .map(|note| ListItem::new(note.name()))
+                .map(|&i| ListItem::new(notes[i].name()))
                 .collect();
 
-            let title = format!(" Files — {} ", notes.len());
+            let title = if query.is_empty() {
+                format!(" Files — {} ", notes.len())
+            } else {
+                format!(" Files — {}/{} ", filtered.len(), notes.len())
+            };
             let list = List::new(items)
                 .block(Block::default().borders(Borders::ALL).title(title))
                 .highlight_style(
@@ -102,13 +130,13 @@ fn main() -> io::Result<()> {
 
             frame.render_stateful_widget(list, body[0], &mut list_state);
 
-            // ─── RIGHT: preview of selected note
+            // ─── RIGHT: preview of selected note (look up via filtered index)
             let (preview_text, preview_title) = match list_state.selected() {
-                Some(i) => {
-                    let note = &notes[i];
+                Some(i) if i < filtered.len() => {
+                    let note = &notes[filtered[i]];
                     (note.contents.as_str(), format!(" {} ", note.path.display()))
                 }
-                None => ("No file selected", String::from(" Preview ")),
+                _ => ("No file selected", String::from(" Preview ")),
             };
 
             let preview = Paragraph::new(preview_text)
@@ -117,18 +145,56 @@ fn main() -> io::Result<()> {
 
             frame.render_widget(preview, body[1]);
 
-            // ─── FOOTER: key hints, dim
-            let footer = Paragraph::new(" ↑↓/jk: navigate · q: quit ")
-                .style(Style::default().fg(Color::DarkGray));
+            // ─── FOOTER: key hints in normal mode, search bar in search mode
+            let (footer_text, footer_style) = match mode {
+                Mode::Normal => (
+                    " /: search · ↑↓/jk: navigate · q: quit ".to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Mode::Search => (
+                    format!(" /{}_ ", query),
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            };
+            let footer = Paragraph::new(footer_text).style(footer_style);
             frame.render_widget(footer, outer[2]);
         })?;
 
         if let Event::Key(key) = event::read()? {
-            match key.code {
-                KeyCode::Char('q') => break,
-                KeyCode::Down | KeyCode::Char('j') => list_state.select_next(),
-                KeyCode::Up | KeyCode::Char('k') => list_state.select_previous(),
-                _ => {}
+            match mode {
+                Mode::Normal => match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char('/') => {
+                        mode = Mode::Search;
+                        query.clear();
+                        list_state.select(Some(0));
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => list_state.select_next(),
+                    KeyCode::Up | KeyCode::Char('k') => list_state.select_previous(),
+                    _ => {}
+                },
+                Mode::Search => match key.code {
+                    KeyCode::Esc => {
+                        mode = Mode::Normal;
+                        query.clear();
+                        list_state.select(Some(0));
+                    }
+                    KeyCode::Enter => {
+                        mode = Mode::Normal;
+                    }
+                    KeyCode::Backspace => {
+                        query.pop();
+                        list_state.select(Some(0));
+                    }
+                    KeyCode::Char(c) => {
+                        query.push(c);
+                        list_state.select(Some(0));
+                    }
+                    _ => {}
+                },
             }
         }
     }
