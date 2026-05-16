@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols::Marker;
+use ratatui::widgets::canvas::{Canvas, Points};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use walkdir::WalkDir;
 
@@ -40,6 +42,13 @@ enum Mode {
     Search,
 }
 
+/// Which view is shown in the left pane: the list, or the graph canvas.
+#[derive(Copy, Clone)]
+enum View {
+    List,
+    Graph,
+}
+
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     let path: &str = if args.len() > 1 {
@@ -66,6 +75,7 @@ fn main() -> io::Result<()> {
     // Mode state: are we navigating or typing a search query?
     let mut mode = Mode::Normal;
     let mut query = String::new();
+    let mut view = View::List;
 
     loop {
         terminal.draw(|frame| {
@@ -107,28 +117,61 @@ fn main() -> io::Result<()> {
                     .collect()
             };
 
-            // ─── LEFT: list of (filtered) file names
-            let items: Vec<ListItem> = filtered
-                .iter()
-                .map(|&i| ListItem::new(notes[i].name()))
-                .collect();
+            // ─── LEFT: either the list view or the graph view
+            match view {
+                View::List => {
+                    let items: Vec<ListItem> = filtered
+                        .iter()
+                        .map(|&i| ListItem::new(notes[i].name()))
+                        .collect();
 
-            let title = if query.is_empty() {
-                format!(" Files — {} ", notes.len())
-            } else {
-                format!(" Files — {}/{} ", filtered.len(), notes.len())
-            };
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title(title))
-                .highlight_style(
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .highlight_symbol("> ");
+                    let title = if query.is_empty() {
+                        format!(" Files — {} ", notes.len())
+                    } else {
+                        format!(" Files — {}/{} ", filtered.len(), notes.len())
+                    };
+                    let list = List::new(items)
+                        .block(Block::default().borders(Borders::ALL).title(title))
+                        .highlight_style(
+                            Style::default()
+                                .fg(Color::Black)
+                                .bg(Color::Cyan)
+                                .add_modifier(Modifier::BOLD),
+                        )
+                        .highlight_symbol("> ");
 
-            frame.render_stateful_widget(list, body[0], &mut list_state);
+                    frame.render_stateful_widget(list, body[0], &mut list_state);
+                }
+                View::Graph => {
+                    let count = filtered.len();
+                    let selected = list_state.selected();
+                    let title = format!(" Graph — {} notes ", count);
+
+                    let canvas = Canvas::default()
+                        .block(Block::default().borders(Borders::ALL).title(title))
+                        .x_bounds([-1.3, 1.3])
+                        .y_bounds([-1.3, 1.3])
+                        .marker(Marker::Braille)
+                        .paint(|ctx| {
+                            // Place each note as a point on a unit circle
+                            for i in 0..count {
+                                let angle = 2.0 * std::f64::consts::PI * (i as f64) / (count as f64);
+                                let x = angle.cos();
+                                let y = angle.sin();
+                                let color = if Some(i) == selected {
+                                    Color::Cyan
+                                } else {
+                                    Color::DarkGray
+                                };
+                                ctx.draw(&Points {
+                                    coords: &[(x, y)],
+                                    color,
+                                });
+                            }
+                        });
+                    frame.render_widget(canvas, body[0]);
+                }
+            }
 
             // ─── RIGHT: preview of selected note (look up via filtered index)
             let (preview_text, preview_title) = match list_state.selected() {
@@ -146,9 +189,16 @@ fn main() -> io::Result<()> {
             frame.render_widget(preview, body[1]);
 
             // ─── FOOTER: key hints in normal mode, search bar in search mode
+            let view_hint = match view {
+                View::List => "g: graph",
+                View::Graph => "g: list",
+            };
             let (footer_text, footer_style) = match mode {
                 Mode::Normal => (
-                    " /: search · ↑↓/jk: navigate · q: quit ".to_string(),
+                    format!(
+                        " /: search · ↑↓/jk: navigate · {} · q: quit ",
+                        view_hint
+                    ),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Mode::Search => (
@@ -171,6 +221,12 @@ fn main() -> io::Result<()> {
                         mode = Mode::Search;
                         query.clear();
                         list_state.select(Some(0));
+                    }
+                    KeyCode::Char('g') => {
+                        view = match view {
+                            View::List => View::Graph,
+                            View::Graph => View::List,
+                        };
                     }
                     KeyCode::Down | KeyCode::Char('j') => list_state.select_next(),
                     KeyCode::Up | KeyCode::Char('k') => list_state.select_previous(),
