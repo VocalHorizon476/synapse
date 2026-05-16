@@ -187,13 +187,47 @@ fn main() -> io::Result<()> {
                         Color::LightCyan,
                     ];
 
+                    // Offsets that, when added to a center (x, y), form a small filled
+                    // disc made of braille dots. Used to make each node visibly larger.
+                    let normal_blob: &[(f64, f64)] = &[
+                        (0.0, 0.0),
+                        (0.04, 0.0),
+                        (-0.04, 0.0),
+                        (0.0, 0.04),
+                        (0.0, -0.04),
+                        (0.03, 0.03),
+                        (-0.03, 0.03),
+                        (0.03, -0.03),
+                        (-0.03, -0.03),
+                    ];
+                    // Larger disc for the selected node so it pops.
+                    let selected_blob: &[(f64, f64)] = &[
+                        (0.0, 0.0),
+                        (0.05, 0.0),
+                        (-0.05, 0.0),
+                        (0.0, 0.05),
+                        (0.0, -0.05),
+                        (0.04, 0.04),
+                        (-0.04, 0.04),
+                        (0.04, -0.04),
+                        (-0.04, -0.04),
+                        (0.08, 0.0),
+                        (-0.08, 0.0),
+                        (0.0, 0.08),
+                        (0.0, -0.08),
+                        (0.06, 0.06),
+                        (-0.06, 0.06),
+                        (0.06, -0.06),
+                        (-0.06, -0.06),
+                    ];
+
                     let canvas = Canvas::default()
                         .block(Block::default().borders(Borders::ALL).title(title))
                         .x_bounds([-1.3, 1.3])
                         .y_bounds([-1.3, 1.3])
                         .marker(Marker::Braille)
                         .paint(|ctx| {
-                            // Each note becomes a point on a unit circle, colored by folder.
+                            // Each note becomes a small blob on a unit circle, colored by folder.
                             for i in 0..count {
                                 let angle =
                                     2.0 * std::f64::consts::PI * (i as f64) / (count as f64);
@@ -203,13 +237,17 @@ fn main() -> io::Result<()> {
                                     .iter()
                                     .position(|f| f == &folder_of[i])
                                     .unwrap_or(0);
-                                let color = if Some(i) == selected {
-                                    Color::White
+                                let (offsets, color) = if Some(i) == selected {
+                                    (selected_blob, Color::White)
                                 } else {
-                                    palette[folder_idx % palette.len()]
+                                    (normal_blob, palette[folder_idx % palette.len()])
                                 };
+                                let coords: Vec<(f64, f64)> = offsets
+                                    .iter()
+                                    .map(|&(dx, dy)| (x + dx, y + dy))
+                                    .collect();
                                 ctx.draw(&Points {
-                                    coords: &[(x, y)],
+                                    coords: &coords,
                                     color,
                                 });
                             }
