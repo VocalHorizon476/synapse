@@ -11,7 +11,7 @@ use ratatui::widgets::canvas::{Canvas, Points};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use walkdir::WalkDir;
 
-const DEFAULT_PATH: &str = "/Users/trthurthiele/Documents/Schule/Mappen";
+const DEFAULT_PATH: &str = "/Users/arthurthiele/Documents/Schule/Mappen";
 
 // ─── A Note: one typst file, with its path and pre-loaded contents ────────────
 struct Note {
@@ -147,21 +147,66 @@ fn main() -> io::Result<()> {
                     let selected = list_state.selected();
                     let title = format!(" Graph — {} notes ", count);
 
+                    // For each filtered note, find its top-level folder (e.g. "Mathe").
+                    let root = std::path::Path::new(path);
+                    let folder_of: Vec<String> = filtered
+                        .iter()
+                        .map(|&i| {
+                            notes[i]
+                                .path
+                                .strip_prefix(root)
+                                .ok()
+                                .and_then(|p| p.parent())
+                                .and_then(|p| p.iter().next())
+                                .map(|c| c.to_string_lossy().to_string())
+                                .unwrap_or_else(|| String::from("(root)"))
+                        })
+                        .collect();
+
+                    // Collect unique folder names in the order they first appear.
+                    let mut unique_folders: Vec<String> = Vec::new();
+                    for f in &folder_of {
+                        if !unique_folders.contains(f) {
+                            unique_folders.push(f.clone());
+                        }
+                    }
+
+                    // Color palette — each folder gets one, cycling if there are many.
+                    let palette = [
+                        Color::Red,
+                        Color::Green,
+                        Color::Yellow,
+                        Color::Blue,
+                        Color::Magenta,
+                        Color::Cyan,
+                        Color::LightRed,
+                        Color::LightGreen,
+                        Color::LightYellow,
+                        Color::LightBlue,
+                        Color::LightMagenta,
+                        Color::LightCyan,
+                    ];
+
                     let canvas = Canvas::default()
                         .block(Block::default().borders(Borders::ALL).title(title))
                         .x_bounds([-1.3, 1.3])
                         .y_bounds([-1.3, 1.3])
                         .marker(Marker::Braille)
                         .paint(|ctx| {
-                            // Place each note as a point on a unit circle
+                            // Each note becomes a point on a unit circle, colored by folder.
                             for i in 0..count {
-                                let angle = 2.0 * std::f64::consts::PI * (i as f64) / (count as f64);
+                                let angle =
+                                    2.0 * std::f64::consts::PI * (i as f64) / (count as f64);
                                 let x = angle.cos();
                                 let y = angle.sin();
+                                let folder_idx = unique_folders
+                                    .iter()
+                                    .position(|f| f == &folder_of[i])
+                                    .unwrap_or(0);
                                 let color = if Some(i) == selected {
-                                    Color::Cyan
+                                    Color::White
                                 } else {
-                                    Color::DarkGray
+                                    palette[folder_idx % palette.len()]
                                 };
                                 ctx.draw(&Points {
                                     coords: &[(x, y)],
@@ -195,10 +240,7 @@ fn main() -> io::Result<()> {
             };
             let (footer_text, footer_style) = match mode {
                 Mode::Normal => (
-                    format!(
-                        " /: search · ↑↓/jk: navigate · {} · q: quit ",
-                        view_hint
-                    ),
+                    format!(" /: search · ↑↓/jk: navigate · {} · q: quit ", view_hint),
                     Style::default().fg(Color::DarkGray),
                 ),
                 Mode::Search => (
