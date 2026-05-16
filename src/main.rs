@@ -214,7 +214,7 @@ fn main() -> io::Result<()> {
                                     x,
                                     y,
                                     Line::from(Span::styled(
-                                        "◖◗",
+                                        "⬤",
                                         Style::default().fg(color),
                                     )),
                                 );
