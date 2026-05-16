@@ -7,7 +7,8 @@ use crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::Marker;
-use ratatui::widgets::canvas::{Canvas, Points};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::canvas::Canvas;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use walkdir::WalkDir;
 
@@ -193,7 +194,8 @@ fn main() -> io::Result<()> {
                         .y_bounds([-1.3, 1.3])
                         .marker(Marker::Block)
                         .paint(|ctx| {
-                            // Each note becomes one big block on a unit circle, colored by folder.
+                            // Each note is drawn as a two-character circle ("◖◗"),
+                            // colored by its top-level folder.
                             for i in 0..count {
                                 let angle =
                                     2.0 * std::f64::consts::PI * (i as f64) / (count as f64);
@@ -208,10 +210,14 @@ fn main() -> io::Result<()> {
                                 } else {
                                     palette[folder_idx % palette.len()]
                                 };
-                                ctx.draw(&Points {
-                                    coords: &[(x, y)],
-                                    color,
-                                });
+                                ctx.print(
+                                    x,
+                                    y,
+                                    Line::from(Span::styled(
+                                        "◖◗",
+                                        Style::default().fg(color),
+                                    )),
+                                );
                             }
                         });
                     frame.render_widget(canvas, body[0]);
